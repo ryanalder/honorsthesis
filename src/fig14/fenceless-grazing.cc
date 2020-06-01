@@ -3,8 +3,8 @@
 // Honors Thesis
 
 /*
- * The purpose of this program is to observe the data rate adjustments
- * as a device moves away from a gateway
+ * The purpose of this program is to best simulate the Fenceless Grazing
+ * implementation to understand constraints and capabilities of the project.
  */
 
 #include "ns3/forwarder-helper.h"
@@ -42,16 +42,22 @@ void OnTxPowerChange (double oldTxPower, double newTxPower) {
 
 int main(int argc, char *argv[]) {
   // device properties
-  int nDevices = 1;
-  int nPeriods = 134;
-  double sideLength = 80000.0;  // m
+  int nDevices = 1500;
+  int nPeriods = 144;          // one day of simulations
+  double sideLength = 2000.0;  // 4km by 4km
+  double minSpeed = 0.5;       // barely moving
+  double maxSpeed = 11;        // running speed of cattle in m/s
+  int communicationRate = 600;
   std::string adrType = "ns3::AdrComponent";
 
   // introduce command line arguments to allow for our script to run simulations
   CommandLine cmd;
   cmd.AddValue("nDevices", "Number of end-nodes to simulate", nDevices);
   cmd.AddValue("PeriodsToSimulate", "Number of periods to simulate", nPeriods);
+  cmd.AddValue("MinSpeed", "Minimum speed for end-nodes", minSpeed);
+  cmd.AddValue("MaxSpeed", "Maximum speed for end-nodes", maxSpeed);
   cmd.AddValue("SideLength", "Length/width of the rectangle", sideLength);
+  cmd.AddValue("CommunicationRate", "Rate of communication", communicationRate);
   cmd.Parse(argc, argv);
 
   LogComponentEnable("AdrComponent", LOG_LEVEL_ALL);
@@ -73,9 +79,13 @@ int main(int argc, char *argv[]) {
 
   // End device mobility
   MobilityHelper mobilityEd, mobilityGw;
-  Ptr<ListPositionAllocator> allocator_ed = CreateObject<ListPositionAllocator>();
-  allocator_ed->Add(Vector(0.0, 0.0, 0.0));
-  mobilityEd.SetPositionAllocator(allocator_ed);
+  mobilityEd.SetPositionAllocator("ns3::RandomRectanglePositionAllocator",
+                                  "X", PointerValue(CreateObjectWithAttributes<UniformRandomVariable>
+                                                    ("Min", DoubleValue(-sideLength),
+                                                     "Max", DoubleValue(sideLength))),
+                                  "Y", PointerValue(CreateObjectWithAttributes<UniformRandomVariable>
+                                                    ("Min", DoubleValue(-sideLength),
+                                                     "Max", DoubleValue(sideLength))));
 
   // Gateway mobility
   Ptr<ListPositionAllocator> allocator = CreateObject<ListPositionAllocator>();
@@ -94,21 +104,16 @@ int main(int argc, char *argv[]) {
   // Create the gateways
   NodeContainer gateways;
   gateways.Create(1);
-  mobilityGw.Install(gateways);
+  mobilityGw.Install(gateways.Get(0));
   phyHelper.SetDeviceType(LoraPhyHelper::GW);
   macHelper.SetDeviceType(LorawanMacHelper::GW);
   helper.Install(phyHelper, macHelper, gateways);
 
   // Create the end-nodes
   NodeContainer endNodes;
-  endNodes.Create(1);
-  mobilityEd.SetMobilityModel ("ns3::RandomWalk2dMobilityModel",
-                               "Bounds", RectangleValue (Rectangle (-sideLength, sideLength,
-                                                                    -sideLength, sideLength)),
-                               "Distance", DoubleValue (40000),
-                               "Speed", PointerValue(CreateObjectWithAttributes<UniformRandomVariable>
-                               ("Min", DoubleValue(5.0), "Max", DoubleValue(5.0))));
+  endNodes.Create(nDevices);
   mobilityEd.Install(endNodes);
+
 
   uint8_t nwkId = 54;
   uint32_t nwkAddr = 1864;
@@ -120,9 +125,8 @@ int main(int argc, char *argv[]) {
   macHelper.SetRegion(LorawanMacHelper::EU);
   helper.Install(phyHelper, macHelper, endNodes);
 
-  int appPeriodSeconds = 60; // one packet every minute
   PeriodicSenderHelper appHelper = PeriodicSenderHelper();
-  appHelper.SetPeriod(Seconds(appPeriodSeconds));
+  appHelper.SetPeriod(Seconds(communicationRate));
   appHelper.SetPacketSize(12);
   ApplicationContainer appContainer = appHelper.Install(endNodes);
 
@@ -148,7 +152,7 @@ int main(int argc, char *argv[]) {
                                  MakeCallback (&OnDataRateChange));
 
 
-  Time stateSamplePeriod = Seconds(60);
+  Time stateSamplePeriod = Seconds(communicationRate);
   helper.EnablePeriodicDeviceStatusPrinting(endNodes, gateways,
                                             "nodeData.txt", stateSamplePeriod);
   helper.EnablePeriodicPhyPerformancePrinting(gateways, "phyPerformance.txt",
@@ -157,7 +161,7 @@ int main(int argc, char *argv[]) {
                                                  stateSamplePeriod);
   LoraPacketTracker& tracker = helper.GetPacketTracker();
 
-  Time simulationTime = Seconds(60 * nPeriods);
+  Time simulationTime = Seconds(600 * nPeriods);
   Simulator::Stop(simulationTime);
   Simulator::Run();
   Simulator::Destroy();

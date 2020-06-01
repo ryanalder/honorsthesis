@@ -42,11 +42,12 @@ void OnTxPowerChange (double oldTxPower, double newTxPower) {
 
 int main(int argc, char *argv[]) {
   // device properties
-  int nDevices = 800;
+  int nDevices = 5000;
   int nPeriods = 144;          // one day of simulations
-  double sideLength = 2000.0;  // m
+  double sideLength = 2000.0;  // 4km by 4km
   double minSpeed = 0.5;       // barely moving
   double maxSpeed = 11;        // running speed of cattle in m/s
+  int communicationRate = 600;
   std::string adrType = "ns3::AdrComponent";
 
   // introduce command line arguments to allow for our script to run simulations
@@ -56,6 +57,7 @@ int main(int argc, char *argv[]) {
   cmd.AddValue("MinSpeed", "Minimum speed for end-nodes", minSpeed);
   cmd.AddValue("MaxSpeed", "Maximum speed for end-nodes", maxSpeed);
   cmd.AddValue("SideLength", "Length/width of the rectangle", sideLength);
+  cmd.AddValue("CommunicationRate", "Rate of communication", communicationRate);
   cmd.Parse(argc, argv);
 
   LogComponentEnable("AdrComponent", LOG_LEVEL_ALL);
@@ -90,6 +92,24 @@ int main(int argc, char *argv[]) {
   allocator->Add(Vector(0.0, 0.0, 5.0)); // 5m off the ground
   mobilityGw.SetPositionAllocator(allocator);
 
+
+  // NOTE: Depending on how many gateways you need to simulate, un-comment this
+  // You will also need to adjust the position vectors to ensure equidistant gateways
+  /*
+  MobilityHelper mobilityGw1;//, mobilityGw2, mobilityGw3;
+  Ptr<ListPositionAllocator> allocator1 = CreateObject<ListPositionAllocator>();
+  allocator1->Add(Vector(sideLength, sideLength, 5.0));
+  mobilityGw1.SetPositionAllocator(allocator1);
+
+  Ptr<ListPositionAllocator> allocator2 = CreateObject<ListPositionAllocator>();
+  allocator2->Add(Vector(-sideLength, sideLength, 5.0));
+  mobilityGw2.SetPositionAllocator(allocator2);
+
+  Ptr<ListPositionAllocator> allocator3 = CreateObject<ListPositionAllocator>();
+  allocator3->Add(Vector(-sideLength, -sideLength, 5.0));
+  mobilityGw3.SetPositionAllocator(allocator3);
+  */
+
   // Setup the helpers
   LoraPhyHelper phyHelper = LoraPhyHelper();
   phyHelper.SetChannel(channel);
@@ -102,7 +122,11 @@ int main(int argc, char *argv[]) {
   // Create the gateways
   NodeContainer gateways;
   gateways.Create(1);
-  mobilityGw.Install(gateways);
+  mobilityGw.Install(gateways.Get(0));
+  // NOTE: Depending on how many gateways you need to simulate, un-comment this
+  //mobilityGw1.Install(gateways.Get(1));
+  //mobilityGw2.Install(gateways.Get(2));
+  //mobilityGw3.Install(gateways.Get(3));
   phyHelper.SetDeviceType(LoraPhyHelper::GW);
   macHelper.SetDeviceType(LorawanMacHelper::GW);
   helper.Install(phyHelper, macHelper, gateways);
@@ -117,7 +141,9 @@ int main(int argc, char *argv[]) {
                                "Speed", PointerValue (CreateObjectWithAttributes<UniformRandomVariable>
                                                       ("Min", DoubleValue(minSpeed),
                                                        "Max", DoubleValue(maxSpeed))));
+
   mobilityEd.Install(endNodes);
+
 
   uint8_t nwkId = 54;
   uint32_t nwkAddr = 1864;
@@ -129,9 +155,8 @@ int main(int argc, char *argv[]) {
   macHelper.SetRegion(LorawanMacHelper::EU);
   helper.Install(phyHelper, macHelper, endNodes);
 
-  int appPeriodSeconds = 600; // one packet every 10 minutes
   PeriodicSenderHelper appHelper = PeriodicSenderHelper();
-  appHelper.SetPeriod(Seconds(appPeriodSeconds));
+  appHelper.SetPeriod(Seconds(communicationRate));
   appHelper.SetPacketSize(12);
   ApplicationContainer appContainer = appHelper.Install(endNodes);
 
@@ -157,7 +182,7 @@ int main(int argc, char *argv[]) {
                                  MakeCallback (&OnDataRateChange));
 
 
-  Time stateSamplePeriod = Seconds(600);
+  Time stateSamplePeriod = Seconds(communicationRate);
   helper.EnablePeriodicDeviceStatusPrinting(endNodes, gateways,
                                             "nodeData.txt", stateSamplePeriod);
   helper.EnablePeriodicPhyPerformancePrinting(gateways, "phyPerformance.txt",
